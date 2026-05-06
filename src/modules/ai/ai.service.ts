@@ -21,11 +21,13 @@ export class AiService {
     resumeText: string;
     jobDescription: string;
   }): Promise<ResumeAnalysisAiResult> {
-    const baseUrl =
-      this.configService.get<string>('OLLAMA_BASE_URL') ||
-      'http://localhost:11434';
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    const model =
+      this.configService.get<string>('GEMINI_MODEL') || 'gemini-1.5-flash';
 
-    const model = this.configService.get<string>('OLLAMA_MODEL') || 'llama3.2';
+    if (!apiKey) {
+      throw new InternalServerErrorException('GEMINI_API_KEY is not configured');
+    }
 
     const prompt = buildResumeAnalyzerPrompt({
       resumeText: params.resumeText,
@@ -33,16 +35,26 @@ export class AiService {
     });
 
     try {
-      console.log(`Starting AI analysis with model: ${model} at ${baseUrl}`);
-      const response = await axios.post(`${baseUrl}/api/generate`, {
-        model,
-        prompt,
-        format: 'json',
-        stream: false,
-      }, { timeout: 300000 }); // Increase timeout to 5m
-      console.log('AI response received successfully');
-      console.log('AI raw response:', response.data.response);
-      const rawText = response.data.response;
+      console.log(`Starting AI analysis with Gemini model: ${model}`);
+
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          contents: [
+            {
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: 'application/json',
+          },
+        },
+        { timeout: 300000 },
+      );
+
+      console.log('Gemini response received successfully');
+      const rawText = response.data.candidates[0].content.parts[0].text;
+      console.log('AI raw response:', rawText);
       const parsed = JSON.parse(rawText);
 
       return {
@@ -62,11 +74,14 @@ export class AiService {
         summarySuggestion: String(parsed.summarySuggestion || ''),
         recommendation: String(parsed.recommendation || ''),
       };
-    } catch (error) {
-      console.error('AI analysis error:', error);
+    } catch (error: any) {
+      console.error(
+        'AI analysis error:',
+        error.response?.data || error.message,
+      );
 
       throw new InternalServerErrorException(
-        'Failed to analyze resume using AI',
+        'Failed to analyze resume using Gemini AI',
       );
     }
   }

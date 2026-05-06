@@ -26,11 +26,18 @@ export class ResumeController {
       },
     }),
   )
-  analyzeResume(
+  async analyzeResume(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: AnalyzeResumeDto,
   ) {
-    return this.resumeService.analyzeResume(file, body.jobDescription);
+    const result = await this.resumeService.analyzeResume(
+      file,
+      body.jobDescription,
+    );
+    return {
+      message: 'Resume analyzed successfully',
+      data: result,
+    };
   }
 
   @Get('history')
