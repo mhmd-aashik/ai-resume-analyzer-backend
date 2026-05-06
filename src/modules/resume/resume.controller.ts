@@ -30,15 +30,12 @@ export class ResumeController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: AnalyzeResumeDto,
   ) {
-    return this.resumeService.analyzeResume({
-      file,
-      jobDescription: body.jobDescription,
-    });
+    return this.resumeService.analyzeResume(file, body.jobDescription);
   }
 
   @Get('history')
   getHistory() {
-    return this.resumeService.getAnalysesHistory();
+    return this.resumeService.getHistory();
   }
 
   @Get(':id')

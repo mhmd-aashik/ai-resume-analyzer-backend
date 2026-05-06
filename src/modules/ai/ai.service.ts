@@ -33,13 +33,15 @@ export class AiService {
     });
 
     try {
+      console.log(`Starting AI analysis with model: ${model} at ${baseUrl}`);
       const response = await axios.post(`${baseUrl}/api/generate`, {
         model,
         prompt,
         format: 'json',
         stream: false,
-      });
-
+      }, { timeout: 300000 }); // Increase timeout to 5m
+      console.log('AI response received successfully');
+      console.log('AI raw response:', response.data.response);
       const rawText = response.data.response;
       const parsed = JSON.parse(rawText);
 

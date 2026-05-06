@@ -2,68 +2,76 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
-import { DbService } from '../../db/db.service';
-import { resumeAnalyses } from '../../db/schema';
-import { AiService } from '../ai/ai.service';
-import { extractTextFromPdf } from './utils/pdf-parser.util';
+import { DbService } from '../../db/db.service.js';
+import { resumeAnalyses } from '../../db/schema.js';
 import { eq, desc } from 'drizzle-orm';
+import { extractTextFromPdf } from './utils/pdf-parser.util.js';
+import { AiService } from '../ai/ai.service.js';
+import { sanitizeTextForDatabase } from '../../common/utils/text-sanitizer.util.js';
 
 @Injectable()
 export class ResumeService {
   constructor(
-    private readonly aiService: AiService,
     private readonly dbService: DbService,
+    private readonly aiService: AiService,
   ) {}
 
-  async analyzeResume(params: {
-    file: Express.Multer.File;
-    jobDescription: string;
-  }) {
-    const { file, jobDescription } = params;
-
-    if (!file) {
-      throw new BadRequestException('Resume PDF file is required');
-    }
-
-    if (file.mimetype !== 'application/pdf') {
-      throw new BadRequestException('Only PDF resumes are allowed');
-    }
-
+  async analyzeResume(file: Express.Multer.File, jobDescription: string) {
     if (!jobDescription || jobDescription.trim().length < 20) {
       throw new BadRequestException('Job description is too short');
     }
 
-    try {
-      const resumeText = await extractTextFromPdf(file.buffer);
+    console.log(`Analyzing resume: ${file.originalname}`);
 
+    try {
+      console.log('Extracting text from PDF...');
+      const rawResumeText = await extractTextFromPdf(file.buffer);
+      const resumeText = sanitizeTextForDatabase(rawResumeText);
+      const cleanJobDescription = sanitizeTextForDatabase(jobDescription);
+      
+      console.log(`Text extracted and sanitized (${resumeText.length} chars)`);
+
+      console.log('Calling AI service...');
       const aiResult = await this.aiService.analyzeResume({
         resumeText,
-        jobDescription,
+        jobDescription: cleanJobDescription,
       });
+      console.log('AI analysis completed');
 
+      // Temporary debug logs before insert
+      console.log("Resume text contains null byte:", resumeText.includes("\0"));
+      console.log("Job description contains null byte:", cleanJobDescription.includes("\0"));
+
+      console.log('Saving to database...');
       const [savedAnalysis] = await this.dbService.db
         .insert(resumeAnalyses)
         .values({
-          resumeFileName: file.originalname,
+          resumeFileName: sanitizeTextForDatabase(file.originalname),
           resumeText,
-          jobDescription,
+          jobDescription: cleanJobDescription,
           score: aiResult.score,
           matchedSkills: aiResult.matchedSkills,
           missingSkills: aiResult.missingSkills,
           atsFeedback: aiResult.atsFeedback,
           improvementSuggestions: aiResult.improvementSuggestions,
-          summarySuggestion: aiResult.summarySuggestion,
-          recommendation: aiResult.recommendation,
+          summarySuggestion: sanitizeTextForDatabase(aiResult.summarySuggestion),
+          recommendation: sanitizeTextForDatabase(aiResult.recommendation),
         })
         .returning();
 
-      return {
-        message: 'Resume analyzed successfully',
-        data: savedAnalysis,
-      };
-    } catch (error) {
+      console.log('Analysis saved to database successfully');
+      return savedAnalysis;
+    } catch (error: any) {
       console.error('Resume analyze error:', error);
+      
+      // If it's a database error, log the specific reason
+      if (error.code) {
+        console.error(`Database Error Code: ${error.code}`);
+        console.error(`Database Error Detail: ${error.detail}`);
+        console.error(`Database Error Hint: ${error.hint}`);
+      }
 
       if (
         error instanceof BadRequestException ||
@@ -72,15 +80,19 @@ export class ResumeService {
         throw error;
       }
 
-      throw new InternalServerErrorException('Failed to analyze resume');
+      throw new InternalServerErrorException(
+        `Failed to analyze resume: ${error.message || 'Unknown error'}`,
+      );
     }
   }
 
-  async getAnalysesHistory() {
-    return this.dbService.db
+  async getHistory(limit = 10, offset = 0) {
+    return await this.dbService.db
       .select()
       .from(resumeAnalyses)
-      .orderBy(desc(resumeAnalyses.createdAt));
+      .orderBy(desc(resumeAnalyses.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
   async getAnalysisById(id: string) {
@@ -88,6 +100,10 @@ export class ResumeService {
       .select()
       .from(resumeAnalyses)
       .where(eq(resumeAnalyses.id, id));
+
+    if (!analysis) {
+      throw new NotFoundException('Analysis not found');
+    }
 
     return analysis;
   }
