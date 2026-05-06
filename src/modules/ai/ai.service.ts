@@ -53,7 +53,21 @@ export class AiService {
       );
 
       console.log('Gemini response received successfully');
-      const rawText = response.data.candidates[0].content.parts[0].text;
+      
+      const candidate = response.data.candidates?.[0];
+      if (!candidate) {
+        throw new Error('Gemini returned no candidates');
+      }
+
+      if (candidate.finishReason === 'SAFETY') {
+        throw new Error('Gemini response was blocked due to safety settings');
+      }
+
+      const rawText = candidate.content?.parts?.[0]?.text;
+      if (!rawText) {
+        throw new Error('Gemini response contains no text content');
+      }
+
       console.log('AI raw response:', rawText);
       const parsed = JSON.parse(rawText);
 
@@ -75,13 +89,14 @@ export class AiService {
         recommendation: String(parsed.recommendation || ''),
       };
     } catch (error: any) {
+      const errorMessage = error.response?.data?.[0]?.error?.message || error.response?.data?.error?.message || error.message;
       console.error(
         'AI analysis error:',
-        error.response?.data || error.message,
+        JSON.stringify(error.response?.data || error.message, null, 2),
       );
 
       throw new InternalServerErrorException(
-        'Failed to analyze resume using Gemini AI',
+        `Failed to analyze resume: ${errorMessage}`,
       );
     }
   }
