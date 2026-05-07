@@ -7,6 +7,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -41,8 +42,14 @@ export class ResumeController {
   }
 
   @Get('history')
-  getHistory() {
-    return this.resumeService.getHistory();
+  getHistory(
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    return this.resumeService.getHistory(
+      limit ? Number(limit) : 10,
+      offset ? Number(offset) : 0,
+    );
   }
 
   @Get(':id')

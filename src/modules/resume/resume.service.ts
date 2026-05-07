@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { DbService } from '../../db/db.service.js';
 import { resumeAnalyses } from '../../db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { extractTextFromPdf } from './utils/pdf-parser.util.js';
 import { AiService } from '../ai/ai.service.js';
 import { sanitizeTextForDatabase } from '../../common/utils/text-sanitizer.util.js';
@@ -87,12 +87,21 @@ export class ResumeService {
   }
 
   async getHistory(limit = 10, offset = 0) {
-    return await this.dbService.db
+    const items = await this.dbService.db
       .select()
       .from(resumeAnalyses)
       .orderBy(desc(resumeAnalyses.createdAt))
       .limit(limit)
       .offset(offset);
+
+    const [countResult] = await this.dbService.db
+      .select({ count: sql<number>`count(*)` })
+      .from(resumeAnalyses);
+
+    return {
+      items,
+      total: Number(countResult?.count || 0),
+    };
   }
 
   async getAnalysisById(id: string) {
